@@ -15,4 +15,7 @@ urlpatterns = [
     path('templates/<str:user>/', views.user_templates),
     path('certificate/<int:pk>/details/<str:roll_no>/', views.certificate_details),
     path('certificate/<int:pk>/info/', views.certificate_info),
+    path('certificate/<int:pk>/generate/<str:roll_no>/', views.generate_certificate),
+    path('certificate/<int:pk>/generate/<str:roll_no>/<str:mode>/', views.generate_certificate),
+    path('certificate/<int:pk>/csv/<str:user>/', views.download_csv),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -1,0 +1,17 @@
+DJANGO_SECRET_KEY='django-insecure-^syy%bwum)j%a2o9_3n!3hrex_y^6i+0ui5=*-bkir39lpflzd'
+DEBUG=True
+ALLOWED_HOSTS='*'
+
+
+DB_NAME='certificate' 
+DB_USER='postgres'
+DB_PASSWORD='2X07FcSnOuYhClsDVbxf5Htk5rWfqPitCGnQkVygIAE2yCUgcLEfVRaALR324caK'
+DB_HOST='82.112.236.232'
+DB_PORT='5432' 
+
+HOST_URL=http://localhost:8000,https://certificate.tech-iitb.org
+
+CSRF_TRUSTED_ORIGINS='https://certificate.tech-iitb.org,http://localhost:8000'
+
+CORS_ORIGIN_ALLOW_ALL=True
+CORS_ORIGIN_ALLOW='*'

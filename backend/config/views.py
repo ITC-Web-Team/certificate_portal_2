@@ -9,6 +9,8 @@ import json
 from .models import Certificate, CertificateField
 from .serializers import CertificateSerializer, CertificateFieldSerializer
 import pandas as pd
+from PIL import Image, ImageDraw, ImageFont
+from django.http import HttpResponse
 
 
 @api_view(['POST'])
@@ -16,7 +18,6 @@ import pandas as pd
 def upload_certificate(request):
     if request.method == 'POST':
         try:
-            print("--------------",request.FILES, request.POST)  # Debug print
             csv_file = request.FILES.get('csv_file')
             template = request.FILES.get('template')
             title = request.POST.get('title')
@@ -32,35 +33,34 @@ def upload_certificate(request):
                 )
             
             certificate = Certificate.objects.create(
-                title=title,
+            title=title, 
                 organization=organization,
-                user=user,
-                template=template,
+            user=user, 
+            template=template, 
                 csv_data=csv_file,
                 roll_column=roll_column
-            )
+        )
 
-            if certificate:
-                variables = json.loads(variables)
-                
-                for variable in variables:
-                    CertificateField.objects.create(
-                        certificate=certificate,
-                        field_name=variable['field_name'],
-                        csv_column=variable['csv_column'],
-                        x=variable['x'],
-                        y=variable['y'],
-                        font_size=variable['font_size'],
-                        font_color=variable['font_color'],
-                        font_family=variable['font_family']
-                    )
-                
-                return Response({'id': certificate.id}, status=status.HTTP_201_CREATED)
-            return Response({'error': 'Failed to create certificate'}, status=status.HTTP_400_BAD_REQUEST)
+            variables = json.loads(variables)
+
+            for variable in variables:
+                CertificateField.objects.create(
+                    certificate=certificate, 
+                    field_name=variable['field_name'], 
+                    csv_column=variable['csv_column'],
+                    x=variable['x'], 
+                    y=variable['y'], 
+                    font_size=variable['font_size'], 
+                    font_color=variable['font_color'], 
+                    font_family=variable['font_family']
+                )
+            
+            return Response({'id': certificate.id}, status=status.HTTP_201_CREATED)
+
         except Exception as e:
             print("Error:", e)
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-    print("--------------------------------")
+    
     return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
@@ -95,8 +95,8 @@ def user_certificate_list(request, user):
             {"error": "Failed to fetch certificates"}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-
-
+    
+    
 def certificate_list(request):
     if request.method == 'GET':
         certificates = Certificate.objects.all()
@@ -147,12 +147,6 @@ def certificate_preview(request, pk):
                     'font_color': field.font_color,
                     'font_family': field.font_family
                 }
-
-        print("Preview data:", {  # Debug print
-            'template': certificate_serializer.data['template'],
-            'fields': field_data
-        })
-
         return Response({
             'template': certificate_serializer.data['template'],
             'fields': field_data
@@ -177,6 +171,7 @@ def user_templates(request, user):
                     'id': cert.id,
                     'title': cert.title,
                     'template': cert.template.url,
+                    'verified': cert.verified,
                     'organization': cert.organization,
                     'created_at': cert.created_at,
                     'fields': []
@@ -267,4 +262,106 @@ def certificate_info(request, pk):
         return Response(
             {"error": "Certificate not found"}, 
             status=status.HTTP_404_NOT_FOUND
+        )
+
+
+@api_view(['GET'])
+def generate_certificate(request, pk, roll_no, mode='preview'):
+    try:
+        certificate = Certificate.objects.get(id=pk)
+        fields = CertificateField.objects.filter(certificate=certificate)
+        
+        # Read CSV and find the row with matching roll number
+        df = pd.read_csv(certificate.csv_data)
+        filtered_df = df[df[certificate.roll_column] == roll_no]
+        
+        if filtered_df.empty:
+            return Response(
+                {"error": "Roll number not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        row = filtered_df.iloc[0].to_dict()
+        
+        # Open the template image
+        template_path = certificate.template.path
+        img = Image.open(template_path)
+        draw = ImageDraw.Draw(img)
+        
+        # Add text for each field
+        for field in fields:
+            csv_value = str(row.get(field.csv_column, ''))
+            try:
+                # Load font - you'll need to provide proper font files
+                font = ImageFont.truetype(f"fonts/{field.font_family}.ttf", field.font_size)
+            except:
+                # Fallback to default font
+                font = ImageFont.load_default()
+            
+            # Draw text
+            draw.text(
+                (field.x, field.y),
+                csv_value,
+                font=font,
+                fill=field.font_color,
+                anchor="mm"  # Center align text at position
+            )
+        
+        # Save the image to bytes
+        img_byte_array = io.BytesIO()
+        
+        if mode == 'pdf':
+            # Save as PDF
+            img = img.convert('RGB')
+            img.save(img_byte_array, format='PDF', resolution=300.0)
+            content_type = 'application/pdf'
+            filename = f'certificate_{pk}_{roll_no}.pdf'
+        else:
+            # Save as PNG
+            img.save(img_byte_array, format='PNG')
+            content_type = 'image/png'
+            filename = f'certificate_{pk}_{roll_no}.png'
+        
+        img_byte_array.seek(0)
+        
+        response = HttpResponse(img_byte_array, content_type=content_type)
+        if mode != 'preview':
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        
+        return response
+        
+    except Certificate.DoesNotExist:
+        return Response(
+            {"error": "Certificate not found"}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        print("Error generating certificate:", str(e))
+        return Response(
+            {"error": "Failed to generate certificate"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+def download_csv(request, pk, user):
+    try:
+        certificate = Certificate.objects.get(id=pk, user=user)
+        
+        # Open the CSV file
+        with open(certificate.csv_data.path, 'rb') as csv_file:
+            response = HttpResponse(csv_file.read(), content_type='text/csv')
+            response['Content-Disposition'] = f'attachment; filename="{certificate.title.lower().replace(" ", "-")}-data.csv"'
+            return response
+            
+    except Certificate.DoesNotExist:
+        return Response(
+            {"error": "Certificate not found"}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        print("Error downloading CSV:", str(e))
+        return Response(
+            {"error": "Failed to download CSV"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
